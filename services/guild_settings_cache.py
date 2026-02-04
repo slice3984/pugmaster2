@@ -2,6 +2,7 @@ from domain.guild_settings import GuildSettings
 from typing import Dict
 
 class GuildSettingsCache:
+    """Caches retrieved guild settings from the database."""
     def __init__(self) -> None:
         self._guilds: Dict[int, GuildSettings] = {}
 
