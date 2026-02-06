@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, func
+from sqlalchemy import BigInteger, DateTime, func, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
@@ -11,7 +11,7 @@ class Guild(Base):
 
     guild_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     name: Mapped[str] = mapped_column(nullable=False)
-
+    prefix: Mapped[str] = mapped_column(Text(10), nullable=False, default='!')
     pickup_channel_id: Mapped[int | None] = mapped_column(BigInteger)
     listen_channel_id: Mapped[int | None] = mapped_column(BigInteger)
 
