@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, AsyncEngine
 from bot.pickupbot import PickupBot
 from config.settings import load_settings
 from core.service_context import ServiceContext
+from services.guild_config_service import GuildConfigService
 from services.guild_registry_service import GuildRegistryService
 from services.guild_state_cache import GuildStateCache
 from db.engine import get_async_engine
@@ -15,8 +16,12 @@ def setup_db_session(db_url: str) -> tuple[AsyncEngine, async_sessionmaker[Async
     return engine, sessionmaker
 
 def setup_services(sessionmaker: async_sessionmaker[AsyncSession]) -> ServiceContext:
+    guild_registry_service = GuildRegistryService(sessionmaker=sessionmaker)
+    guild_config_service = GuildConfigService(sessionmaker=sessionmaker, guild_registry_service=guild_registry_service)
+
     return ServiceContext(
-        guild_registry_service=GuildRegistryService(sessionmaker=sessionmaker)
+        guild_registry_service=guild_registry_service,
+        guild_config_service=guild_config_service
     )
 
 def main():

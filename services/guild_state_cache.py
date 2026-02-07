@@ -4,14 +4,10 @@ from typing import Dict
 class GuildStateCache:
     """Caches retrieved guild settings from the database."""
     def __init__(self) -> None:
-        self._guilds: Dict[int, GuildState] = {}
+        self._guilds: dict[int, GuildState] = {}
 
     def __getitem__(self, guild_id: int) -> GuildState | None:
-        state = self._guilds.get(guild_id)
-        if state is None:
-            return None
-
-        return state
+        return self._guilds.get(guild_id)
 
     def __setitem__(self, guild_id: int, guild_settings: GuildState) -> None:
         self._guilds[guild_id] = guild_settings

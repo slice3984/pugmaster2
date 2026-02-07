@@ -3,6 +3,8 @@ import discord
 from discord._types import ClientT
 from discord.ext import commands
 from domain.guild_state import GuildState
+from domain.types import GuildId
+from services.guild_registry_service import GuildNotCachedError
 
 if TYPE_CHECKING:
     from bot.pickupbot import PickupBot
@@ -18,16 +20,10 @@ class BaseCog(commands.Cog):
     async def get_context(self, origin, /, *, cls=PickupContext):
         return await super().get_context(origin, cls=cls)
 
-    async def cog_before_invoke(self, ctx: PickupContext):
-        """Attach the current guild state to the context."""
-        if ctx.guild is None:
-            ctx.guild_state = None
-        else:
-            ctx.guild_state = self.bot.service_context.guild_registry_service.get_guild_state(ctx.guild.id)
+    def get_guild_state(self, guild_id: GuildId) -> GuildState:
+        state = self.bot.service_context.guild_registry_service.get_guild_state(GuildId(guild_id))
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.guild_id is None:
-            return False
+        if state is None:
+            raise GuildNotCachedError(guild_id)
 
-        interaction.extras['guild_state'] = self.bot.guild_state_cache[interaction.guild_id]
-        return True
+        return state
