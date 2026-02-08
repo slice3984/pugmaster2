@@ -13,7 +13,7 @@ class GuildStateManager:
     def __init__(self, guild_repository_service: GuildRepositoryService) -> None:
         self._cache = GuildStateCache()
         self._repository_service = guild_repository_service
-        self._locks: dict[int, asyncio.Lock] = {}
+        self._locks: dict[GuildId, asyncio.Lock] = {}
 
     async def register_guild(self, guild: GuildInfo) -> None:
         """Loads and caches guild state if necessary."""
@@ -49,6 +49,10 @@ class GuildStateManager:
         lock = self._locks.setdefault(guild_settings.guild_id, asyncio.Lock())
         async with lock:
             curr_state = self._cache[guild_settings.guild_id]
+
+            if curr_state is None:
+                raise GuildNotCachedError(f'Guild {guild_settings.guild_id} not cached')
+
             updated = await self._repository_service.update_guild_settings(guild_settings=guild_settings)
 
             if not updated:
@@ -64,14 +68,21 @@ class GuildStateManager:
                 listen_channel_id=guild_settings.listen_channel_id
             )
 
-            self._cache[guild_settings.guild_id] = replace(curr_state, settings=new_settings)
+            new_state = replace(curr_state, settings=new_settings)
+            self._cache[guild_settings.guild_id] = new_state
 
-        settings = self._cache[guild_settings.guild_id].settings
-        return GuildConfigUpdateResult(ok=True, settings=settings, error=None)
+            return GuildConfigUpdateResult(ok=True, settings=new_settings, error=None)
 
     def get_guild_state(self, guild_id: GuildId) -> GuildState:
-        return self._cache[guild_id]
+        state = self._cache[guild_id]
 
-    def evict_guild_state(self, guild_id: GuildId) -> None:
-        if self._cache[guild_id] is not None:
-            del self._cache[guild_id]
+        if state is None:
+            raise GuildNotCachedError(f'Guild {guild_id} not cached')
+
+        return state
+
+    async def evict_guild_state(self, guild_id: GuildId) -> None:
+        lock = self._locks.setdefault(guild_id, asyncio.Lock())
+        async with lock:
+            if self._cache[guild_id] is not None:
+                del self._cache[guild_id]
