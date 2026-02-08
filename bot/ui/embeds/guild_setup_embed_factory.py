@@ -1,7 +1,6 @@
 import discord
 
-from domain.guild_state import GuildSettings
-from services.guild_config_service import GuildConfigUpdateResult
+from core.dto.guild_config_update_result import GuildConfigUpdateResult
 
 
 class GuildSetupEmbedFactory:

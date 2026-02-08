@@ -4,12 +4,14 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 
-from bot.cogs.base_cog import BaseCog, PickupContext
+from bot.cogs.base_cog import BaseCog, ChannelScope
 
 if TYPE_CHECKING:
     from bot.pickupbot import PickupBot
 
 class Ping(BaseCog):
+    channel_scope = ChannelScope.PICKUP
+
     def __init__(self, bot: PickupBot):
         super().__init__(bot)
 
@@ -32,9 +34,7 @@ class Ping(BaseCog):
 
     @commands.hybrid_command(name='ping', description='Ping the bot')
     @app_commands.guild_only()
-    async def ping(self, ctx: PickupContext, mode: str | None = None):
-        print(ctx.guild_state)
-
+    async def ping(self, ctx: commands.Context, mode: str | None = None):
         mode = (mode or 'normal').lower()
 
         if mode in ('normal', 'n'):

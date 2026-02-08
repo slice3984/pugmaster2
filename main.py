@@ -3,10 +3,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, AsyncEngine
 
 from bot.pickupbot import PickupBot
 from config.settings import load_settings
+from core.dto.manager_context import ManagerContext
 from core.service_context import ServiceContext
-from services.guild_config_service import GuildConfigService
-from services.guild_registry_service import GuildRegistryService
-from services.guild_state_cache import GuildStateCache
+from managers.command_access_manager import CommandAccessManager
+from managers.guild_state_manager import GuildStateManager
+from services.guild_repository_service import GuildRepositoryService
 from db.engine import get_async_engine
 from db.session import init_sessionmaker
 
@@ -16,29 +17,35 @@ def setup_db_session(db_url: str) -> tuple[AsyncEngine, async_sessionmaker[Async
     return engine, sessionmaker
 
 def setup_services(sessionmaker: async_sessionmaker[AsyncSession]) -> ServiceContext:
-    guild_registry_service = GuildRegistryService(sessionmaker=sessionmaker)
-    guild_config_service = GuildConfigService(sessionmaker=sessionmaker, guild_registry_service=guild_registry_service)
+    guild_registry_service = GuildRepositoryService(sessionmaker=sessionmaker)
 
     return ServiceContext(
-        guild_registry_service=guild_registry_service,
-        guild_config_service=guild_config_service
+        guild_repository_service=guild_registry_service,
+    )
+
+def setup_managers(service_context: ServiceContext) -> ManagerContext:
+    guild_state_manager = GuildStateManager(service_context.guild_repository_service)
+    command_access_manager = CommandAccessManager(guild_state_manager=guild_state_manager)
+
+    return ManagerContext(
+        guild_state_manager=guild_state_manager,
+        command_access_manager=command_access_manager
     )
 
 def main():
-    guild_state_cache = GuildStateCache()
-
     settings = load_settings()
 
     # Database
     engine, sessionmaker = setup_db_session(settings.DATABASE_URL)
     service_context = setup_services(sessionmaker)
+    manager_context = setup_managers(service_context)
 
     intents = discord.Intents.default()
     intents.members = True
     intents.presences = True
     intents.message_content = True
 
-    bot = PickupBot(service_context=service_context,
+    bot = PickupBot(manager_context=manager_context,
                     engine=engine,
                     command_prefix="!",
                     intents=intents)

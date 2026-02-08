@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from bot.cogs.guild_configuration import GuildConfiguration
 from bot.cogs.ping import Ping
 from core.dto.guild_info import GuildInfo
-from core.service_context import ServiceContext
+from core.dto.manager_context import ManagerContext
 from db.init_tables import init_tables
 from domain.types import GuildId
 
@@ -15,11 +15,11 @@ dev = True
 class PickupBot(commands.Bot):
     def __init__(self,
                  *,
-                 service_context: ServiceContext,
+                 manager_context: ManagerContext,
                  engine: AsyncEngine,
                  **kwargs):
         super().__init__(**kwargs)
-        self._service_context = service_context
+        self._managers = manager_context
         self._engine = engine
 
     async def setup_hook(self) -> None:
@@ -38,15 +38,15 @@ class PickupBot(commands.Bot):
     async def on_ready(self) -> None:
         print(f'Logged in as {self.user} (ID: {self.user.id})')
 
-        await self._service_context.guild_registry_service.register_guilds(
+        await self._managers.guild_state_manager.register_guilds(
             [GuildInfo(guild_id=GuildId(guild.id), name=guild.name) for guild in self.guilds]
         )
 
-        guild = self._service_context.guild_registry_service.get_guild_state(GuildId(1467241111402840299))
+        guild = self._managers.guild_state_manager.get_guild_state(GuildId(1467241111402840299))
         print(f'Guild: {guild.settings.prefix}')
 
     async def on_guild_available(self, guild: Guild) -> None:
-        await self._service_context.guild_registry_service.register_guild(
+        await self._managers.guild_state_manager.register_guild(
             GuildInfo(
                 guild_id=GuildId(guild.id),
                 name=guild.name
@@ -54,14 +54,14 @@ class PickupBot(commands.Bot):
         )
 
     async def on_guild_join(self, guild: Guild) -> None:
-        await self._service_context.guild_registry_service.register_guild(
+        await self._managers.guild_state_manager.register_guild(
             GuildInfo(
                 guild_id=GuildId(guild.id),
                 name=guild.name)
         )
 
     async def on_guild_remove(self, guild: Guild) -> None:
-        await self._service_context.guild_registry_service.evict_guild(GuildId(guild.id))
+        await self._managers.guild_state_manager.evict_guild(GuildId(guild.id))
         # TODO: Clear states in db
 
     async def close(self) -> None:
@@ -69,5 +69,5 @@ class PickupBot(commands.Bot):
         await self._engine.dispose()
 
     @property
-    def service_context(self):
-        return self._service_context
+    def managers(self):
+        return self._managers

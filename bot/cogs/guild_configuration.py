@@ -27,7 +27,7 @@ class GuildConfiguration(BaseCog):
     ):
         state = self.get_guild_state(GuildId(interaction.guild.id))
 
-        result = await self.bot.service_context.guild_config_service.update_guild_config(GuildSettings(
+        result = await self.bot.managers.guild_state_manager.update_guild_config(GuildSettings(
             guild_id=state.settings.guild_id,
             prefix=state.settings.prefix,
             pickup_channel_id=pickup_channel.id,
