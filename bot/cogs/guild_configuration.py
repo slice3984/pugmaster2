@@ -8,15 +8,19 @@ from bot.cogs.base_cog import BaseCog
 from bot.ui.embeds.guild_setup_embed_factory import GuildSetupEmbedFactory
 from domain.guild_state import GuildSettings
 from domain.types import GuildId
+from managers.command_access_manager import ChannelScope
 
 if TYPE_CHECKING:
     from bot.pickupbot import PickupBot
 
 class GuildConfiguration(BaseCog):
+    channel_scope = ChannelScope.GLOBAL
+
     def __init__(self, bot: PickupBot):
         super().__init__(bot)
 
     @app_commands.default_permissions(administrator=True)
+    @BaseCog.require_slash()
     @commands.has_permissions(administrator=True)
     @app_commands.command(name='setup', description='Setup guild configuration, pickup channel for queues, listen channel for moderation.')
     @app_commands.guild_only()

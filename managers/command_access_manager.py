@@ -1,7 +1,7 @@
 from enum import Enum, auto
 from typing import Iterable
 
-from domain.types import GuildId
+from domain.types import GuildId, RoleId
 from managers.guild_state_manager import GuildStateManager
 
 class ChannelScope(Enum):
@@ -42,7 +42,8 @@ class CommandAccessManager:
     def check_permission_scope(
             self,
             required_scope: PermissionScope,
-            guild_member_role_ids: Iterable[int],
+            guild_id: GuildId,
+            role_ids: Iterable[RoleId],
             is_admin: bool,
             command_name: str
     ) -> bool:
@@ -50,9 +51,33 @@ class CommandAccessManager:
             case PermissionScope.EVERYONE:
                 return True
             case PermissionScope.GATED:
-                if is_admin:
-                    return True
-                # TODO: Role checks -> RoleManager
-                return True
+                return self.has_command_permission(
+                    command_name=command_name,
+                    guild_id=guild_id,
+                    role_ids=role_ids,
+                    is_admin=is_admin
+                )
             case PermissionScope.ADMIN:
                 return is_admin
+
+    def has_command_permission(
+            self,
+            command_name: str,
+            guild_id: GuildId,
+            role_ids: Iterable[RoleId],
+            is_admin: bool
+    ):
+        """Check if a certain user has command execution permission."""
+        if is_admin:
+            return True
+
+        state = self._guild_state_manager.get_guild_state(guild_id=guild_id)
+        elevated_roles = state.role_command_permissions
+
+        for role_id in role_ids:
+            perms = elevated_roles.get(role_id)
+
+            if perms and command_name in perms:
+                return True
+
+        return False

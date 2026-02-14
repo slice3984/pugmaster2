@@ -1,8 +1,5 @@
-from dataclasses import dataclass
-from typing import Optional, List
-
-from domain.types import GuildId
-
+from dataclasses import dataclass, field
+from domain.types import GuildId, RoleId
 
 @dataclass()
 class GuildSettings:
@@ -16,4 +13,5 @@ class GuildSettings:
 class GuildState:
     """Container for cached guild state."""
     settings: GuildSettings
-    queue_names: List[str] | None = None
+    role_command_permissions: dict[RoleId, set[str]] = field(default_factory=dict)
+    queue_names: list[str] | None = None

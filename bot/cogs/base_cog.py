@@ -1,7 +1,8 @@
-from enum import Enum, auto
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 import discord
+from discord import app_commands, Role
 from discord.ext import commands
+
 from domain.guild_state import GuildState
 from domain.types import GuildId
 from managers.command_access_manager import ChannelScope, PermissionScope
@@ -31,24 +32,102 @@ class BaseCog(commands.Cog):
 
         return state
 
-    async def cog_check(self, ctx: commands.Context) -> bool:
-        # Direct messages
-        if ctx.guild is None or ctx.channel.type != discord.ChannelType.text:
-            return False
+    @commands.Cog.listener()
+    async def on_command_error(self, ctx: commands.Context, error: Exception):
+        if isinstance(error, commands.CheckFailure):
+            await ctx.reply('Unauthorized or wrong channel.', delete_after=8)
+            return
+        raise error
 
-        if not self.bot.managers.command_access_manager.check_channel_scope(
+    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        if isinstance(error, app_commands.CheckFailure):
+            if interaction.response.is_done():
+                await interaction.followup.send("Unauthorized or wrong channel.", ephemeral=True)
+            else:
+                await interaction.response.send_message("Unauthorized or wrong channel.", ephemeral=True)
+            return
+        raise error
+
+    def _check(
+            self,
+            guild_id: GuildId,
+            current_channel_id: int,
+            guild_member_roles: list[Role],
+            is_admin: bool,
+            command_name: str
+    ) -> bool:
+        cam = self.bot.managers.command_access_manager
+
+        if not cam.check_channel_scope(
             required_scope=self.channel_scope,
-            guild_id=ctx.guild.id,
-            current_channel_id=ctx.channel.id
+            guild_id=guild_id,
+            current_channel_id=current_channel_id
         ):
             return False
 
-        if not self.bot.managers.command_access_manager.check_permission_scope(
+        if not cam.check_permission_scope(
             required_scope=self.permission_scope,
-            guild_member_role_ids=[ role.id for role in ctx.author.roles ],
-            is_admin=ctx.author.guild_permissions.administrator,
-            command_name=self.qualified_name
+            guild_id=guild_id,
+            role_ids=[role.id for role in guild_member_roles],
+            is_admin=is_admin,
+            command_name=command_name
         ):
             return False
 
         return True
+
+    @classmethod
+    def require_slash(cls):
+        async def predicate(interaction: discord.Interaction):
+            # Guild only
+            if interaction.guild is None or interaction.channel is None:
+                return False
+
+            cog = interaction.command.binding
+
+            if cog is None:
+                return False
+
+            cog = cast(BaseCog, cog)
+
+            # Make sure they are a member
+            if not isinstance(interaction.user, discord.Member):
+                return False
+
+            full_name = getattr(interaction.command, "qualified_name", interaction.command.name)
+            command_name = full_name.split(' ', 1)[0]
+
+            return cog._check(
+                guild_id=GuildId(interaction.guild.id),
+                current_channel_id=interaction.channel.id,
+                guild_member_roles=interaction.user.roles,
+                is_admin=interaction.user.guild_permissions.administrator,
+                command_name=command_name
+            )
+
+        return app_commands.check(predicate)
+
+    @classmethod
+    def require_cmd(cls):
+        async def predicate(ctx: commands.Context):
+            cog = ctx.cog
+
+            if cog is None:
+                return False
+
+            cog = cast(BaseCog, cog)
+
+            member = ctx.author
+
+            if not isinstance(member, discord.Member):
+                return False
+
+            return cog._check(
+                guild_id=GuildId(ctx.guild.id),
+                current_channel_id=ctx.channel.id,
+                guild_member_roles=member.roles,
+                is_admin=member.guild_permissions.administrator,
+                command_name=ctx.command.qualified_name if ctx.command else "unknown"
+            )
+
+        return commands.check(predicate)
