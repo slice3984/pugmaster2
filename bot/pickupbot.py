@@ -11,7 +11,7 @@ from bot.cogs.permission import Permission
 from bot.cogs.ping import Ping
 from core.dto.guild_info import GuildInfo
 from core.dto.manager_context import ManagerContext
-from db.init_tables import init_tables
+from db.init_tables import init_db
 from domain.types import GuildId
 from managers.command_access_manager import PermissionScope
 
@@ -75,7 +75,7 @@ class PickupBot(commands.Bot):
 
         self._gated_commands = list(gated_commands)
 
-        await init_tables(self._engine, self._gated_commands)
+        await init_db(self._engine, self._gated_commands)
 
     async def on_ready(self) -> None:
         print(f'Logged in as {self.user} (ID: {self.user.id})')

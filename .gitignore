@@ -211,3 +211,6 @@ __marimo__/
 
 # Dev db
 dev.db
+
+# Alembic migrations
+migrations/

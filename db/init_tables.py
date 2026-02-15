@@ -1,28 +1,33 @@
 from typing import Iterable
 
 from sqlalchemy.ext.asyncio import AsyncEngine
-from sqlalchemy import text, insert
+from sqlalchemy import insert
 
 from db.base import Base
-# Imports needed to register and create the actual tables
-from db.models.guild import Guild
+import db.models
 from db.models.permission import Permission
-from db.models.role_permission import RolePermission
-from db.models.guild_role_permission import GuildRolePermission
 
-async def init_tables(engine: AsyncEngine, gated_command_names: Iterable[str]) -> None:
-    """Creates tables needed for the database."""
+
+async def init_schema(engine: AsyncEngine) -> None:
+    """Create missing tables or the entire database."""
     async with engine.begin() as conn:
-        try:
-            await conn.execute(text('select 1 from guilds'))
-            print('Database initialized, found tables')
-        except Exception:
-            print('Database not initialized, creating tables')
-            await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(Base.metadata.create_all)
 
-            # Insert gated commands names
-            insertion_list = [{"permission": name } for name in gated_command_names]
 
-            await conn.execute(
-                insert(Permission).values(insertion_list)
-            )
+async def seed_permissions(engine: AsyncEngine, gated_command_names: Iterable[str]) -> None:
+    """Insert gated command names if missing."""
+    values = [{"permission": name} for name in gated_command_names]
+
+    if not values:
+        return
+
+    stmt = insert(Permission).values(values)
+    stmt = stmt.prefix_with("OR IGNORE")
+
+    async with engine.begin() as conn:
+        await conn.execute(stmt)
+
+
+async def init_db(engine: AsyncEngine, gated_command_names: Iterable[str]) -> None:
+    await init_schema(engine)
+    await seed_permissions(engine, gated_command_names)
