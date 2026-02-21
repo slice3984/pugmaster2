@@ -79,16 +79,11 @@ class Permission(BaseCog):
 
     @BaseCog.require_slash()
     @permission.command(name='add', description='Add permissions to a role')
-    @app_commands.autocomplete(
-        command_one=make_command_name_autocomplete(mode='add'),
-        command_two=make_command_name_autocomplete(mode='add'),
-        command_three=make_command_name_autocomplete(mode='add'),
-        command_four=make_command_name_autocomplete(mode='add'),
-        command_five=make_command_name_autocomplete(mode='add'),
-        command_six=make_command_name_autocomplete(mode='add'),
-        command_seven=make_command_name_autocomplete(mode='add'),
-        command_eight=make_command_name_autocomplete(mode='add'),
-        command_nine=make_command_name_autocomplete(mode='add')
+    @BaseCog.autocompletes_numbered(
+        base_name='command',
+        amount=9,
+        func=make_command_name_autocomplete,
+        mode='add'
     )
     async def permission_add(
             self,
@@ -129,16 +124,11 @@ class Permission(BaseCog):
 
     @BaseCog.require_slash()
     @permission.command(name='remove', description='Remove permissions from a role')
-    @app_commands.autocomplete(
-        command_one=make_command_name_autocomplete(mode='remove'),
-        command_two=make_command_name_autocomplete(mode='remove'),
-        command_three=make_command_name_autocomplete(mode='remove'),
-        command_four=make_command_name_autocomplete(mode='remove'),
-        command_five=make_command_name_autocomplete(mode='remove'),
-        command_six=make_command_name_autocomplete(mode='remove'),
-        command_seven=make_command_name_autocomplete(mode='remove'),
-        command_eight=make_command_name_autocomplete(mode='remove'),
-        command_nine=make_command_name_autocomplete(mode='remove')
+    @BaseCog.autocompletes_numbered(
+        base_name='command',
+        amount=9,
+        func=make_command_name_autocomplete,
+        mode='remove'
     )
     async def permission_remove(
             self,

@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, cast, Callable
 import discord
 from discord import app_commands, Role
 from discord.ext import commands
@@ -131,3 +131,28 @@ class BaseCog(commands.Cog):
             )
 
         return commands.check(predicate)
+
+
+    @staticmethod
+    def autocompletes_numbered(
+            base_name: str,
+            amount: int,
+            func: Callable[..., Callable],
+            **func_kwargs
+    ):
+        """
+        Helper function for numbered autocompletes.
+         - Generates numbered autocompletes based on base_name.
+         - Example: base_name_one, base_name_two, ...
+        """
+        number_words = [
+            'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
+            'nine', 'ten', 'eleven', 'twelve',
+        ]
+
+        mapping = {
+            f'{base_name}_{number_words[i]}': func(**func_kwargs)
+            for i in range(amount)
+        }
+
+        return app_commands.autocomplete(**mapping)
