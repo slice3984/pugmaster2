@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 
-from managers.command_access_manager import CommandAccessManager
 from managers.guild_state_manager import GuildStateManager
+from managers.queue_config_manager import QueueConfigManager
 
 @dataclass
 class ManagerContext:
     guild_state_manager: GuildStateManager
-    command_access_manager: CommandAccessManager
+    queue_config_manager: QueueConfigManager

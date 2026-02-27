@@ -1,20 +1,32 @@
 import asyncio
+from datetime import timedelta, timezone, datetime
 from dataclasses import replace
 from typing import Iterable
 
 from core.dto.guild_config_update_result import GuildConfigUpdateResult
 from core.dto.guild_info import GuildInfo
-from domain.guild_state import GuildState, GuildSettings
+from domain.guild_state import GuildState, GuildSettings, QueueState, GuildStateField, ActiveGuildPrompt
 from domain.types import GuildId, RoleId
+from managers.facades.permissions import PermissionsFacade
+from managers.facades.queue_configs import QueueConfigsFacade
+from services.guild_queue_service import GuildQueueService
 from services.guild_repository_service import GuildRepositoryService, GuildNotCachedError
 from services.guild_state_cache import GuildStateCache
 
 
 class GuildStateManager:
-    def __init__(self, guild_repository_service: GuildRepositoryService) -> None:
+    def __init__(self, guild_repository_service: GuildRepositoryService, guild_queue_service: GuildQueueService) -> None:
         self._cache = GuildStateCache()
         self._repository_service = guild_repository_service
+        self._queue_service = guild_queue_service
         self._locks: dict[GuildId, asyncio.Lock] = {}
+
+        # Facades
+        self.permissions = PermissionsFacade(self)
+        self.queue_configs = QueueConfigsFacade(self)
+
+    def acquire_lock(self, guild_id: GuildId) -> asyncio.Lock:
+        return self._locks.setdefault(guild_id, asyncio.Lock())
 
     def _require_state(self, guild_id: GuildId) -> GuildState:
         state = self._cache[guild_id]
@@ -23,6 +35,13 @@ class GuildStateManager:
             raise GuildNotCachedError(f'Guild {guild_id} not cached')
 
         return state
+
+    def _mutate_state(self, guild_id: GuildId, field: GuildStateField, value) -> GuildState:
+        state = self._require_state(guild_id)
+        new_state = replace(state, **{field: value})  # type: ignore[misc]
+        self._cache[guild_id] = new_state
+
+        return new_state
 
     async def register_guild(self, guild: GuildInfo) -> None:
         """Loads and caches guild state if necessary."""
@@ -37,12 +56,18 @@ class GuildStateManager:
                 return
 
             guild_settings = await self._repository_service.fetch_guild_settings(guild_info=guild)
-            guild_role_permissions = await self._repository_service.fetch_guild_role_permissions(
-                guild_id=guild.guild_id)
+            guild_role_permissions = await self._repository_service.fetch_guild_role_permissions(guild_id=guild.guild_id)
+            guild_queue_configs = await self._queue_service.fetch_queues(guild_id=guild.guild_id)
 
             self._cache[guild.guild_id] = GuildState(
                 settings=guild_settings,
-                role_command_permissions=guild_role_permissions
+                role_command_permissions=guild_role_permissions,
+                queues= {
+                    config.name: QueueState(
+                        queue_config=config, player_ids=set()
+                    )
+                    for config in guild_queue_configs
+                }
             )
 
     async def register_guilds(self, guilds: Iterable[GuildInfo]) -> None:
@@ -51,8 +76,6 @@ class GuildStateManager:
 
     async def update_guild_config(self, guild_settings: GuildSettings) -> GuildConfigUpdateResult:
         """Updates guild settings in database and cache."""
-        state = self._require_state(guild_settings.guild_id)
-
         if guild_settings.listen_channel_id == guild_settings.pickup_channel_id:
             return GuildConfigUpdateResult(
                 ok=False,
@@ -92,161 +115,28 @@ class GuildStateManager:
             if self._cache[guild_id] is not None:
                 del self._cache[guild_id]
 
-    def _filter_role_permissions(
-            self,
-            intersection: bool,
-            guild_id: GuildId,
-            role_id: RoleId,
-            command_names: list[str],
-            valid_command_names: list[str]
-    ) -> list[str]:
-        """Checks given commands for validity and performs a difference or intersection check against the given role_id."""
+    def try_acquire_prompt_lease(self,
+                          guild_id: GuildId,
+                          prompt_type: ActiveGuildPrompt
+    ) -> bool:
+        """Attempts to lock a prompt, if in use returns False, on TTL expiration relocks."""
         state = self._require_state(guild_id)
+        prompt_locks = state.active_prompts
 
-        # Validate command names
-        command_names = [command for command in command_names if command in valid_command_names]
+        TTL = 300 # Seconds
+        prompt_lock = prompt_locks.get(prompt_type, None)
 
-        if not command_names:
-            return []
+        if prompt_lock is None:
+            prompt_locks[prompt_type] = datetime.now(timezone.utc)
+            return True
 
-        role_associated_permissions: set[str] = set()
+        # TTL
+        if datetime.now(timezone.utc) - prompt_lock > timedelta(seconds=TTL):
+            prompt_locks[prompt_type] = datetime.now(timezone.utc)
+            return True
 
-        if role_id in state.role_command_permissions:
-            role_associated_permissions = state.role_command_permissions[role_id]
+        return False
 
-        if intersection:
-            left_permissions = list(set(command_names) & role_associated_permissions)
-        else:
-            left_permissions = list(set(command_names) - role_associated_permissions)
-
-        return left_permissions
-
-    async def add_role_permissions(
-            self,
-            guild_id: GuildId,
-            role_id: RoleId,
-            command_names: list[str],
-            valid_command_names: list[str]
-    ) -> list[str]:
-        """Adds permissions to a guild role, returns a list of actually added permissions."""
-        # First check before reaching the lock, if the returned list is empty, there are no permissions to add
-        if not self._filter_role_permissions(intersection=False,
-                                             guild_id=guild_id,
-                                             role_id=role_id,
-                                             command_names=command_names,
-                                             valid_command_names=valid_command_names
-                                             ):
-            return []
-
-        lock = self._locks.setdefault(guild_id, asyncio.Lock())
-        async with lock:
-            # Recheck cache
-            command_names = self._filter_role_permissions(intersection=False,
-                                                          guild_id=guild_id,
-                                                          role_id=role_id,
-                                                          command_names=command_names,
-                                                          valid_command_names=valid_command_names
-                                                          )
-
-            if not command_names:
-                return []
-
-            await self._repository_service.add_role_permissions(command_names=command_names, guild_id=guild_id,
-                                                                role_id=role_id)
-
-            # Update cache
-            state = self._require_state(guild_id)
-            role_command_permissions = dict(state.role_command_permissions) # Copy
-
-            if role_id not in state.role_command_permissions:
-                role_command_permissions[role_id] = set(command_names)
-            else:
-                role_command_permissions[role_id].update(command_names)
-
-            new_state = replace(state, role_command_permissions=role_command_permissions)
-            self._cache[guild_id] = new_state
-            return command_names
-
-    async def remove_role_permissions(
-            self,
-            guild_id: GuildId,
-            role_id: RoleId,
-            command_names: list[str],
-            valid_command_names: list[str]
-    ) -> list[str]:
-        """Removes permissions from a guild role, returns a list of actually removed permissions."""
-        if not self._filter_role_permissions(
-                intersection=True,
-                guild_id=guild_id,
-                role_id=role_id,
-                command_names=command_names,
-                valid_command_names=valid_command_names
-        ):
-            return []
-
-        lock = self._locks.setdefault(guild_id, asyncio.Lock())
-        async with lock:
-            command_names = self._filter_role_permissions(
-                intersection=True,
-                guild_id=guild_id,
-                role_id=role_id,
-                command_names=command_names,
-                valid_command_names=valid_command_names
-            )
-
-            if not command_names:
-                return []
-
-            await self._repository_service.remove_role_permissions(
-                guild_id=guild_id,
-                command_names=command_names,
-                role_id=role_id
-            )
-
-            # Update cache
-            state = self._require_state(guild_id)
-            role_command_permissions = dict(state.role_command_permissions)
-            current_role_permissions = role_command_permissions[role_id]
-
-            role_command_permissions[role_id] = set([c for c in current_role_permissions if c not in command_names])
-            new_state = replace(state, role_command_permissions=role_command_permissions)
-            self._cache[guild_id] = new_state
-
-            return command_names
-
-    def _filter_roles_present_in_cache(
-            self,
-            guild_id: GuildId,
-            role_ids: list[RoleId]
-    ) -> list[RoleId]:
+    def release_prompt_lease(self, guild_id: GuildId, prompt_type: ActiveGuildPrompt):
         state = self._require_state(guild_id)
-        valid_role_ids: list[RoleId] = []
-
-        for role_id in role_ids:
-            if role_id in state.role_command_permissions:
-                valid_role_ids.append(role_id)
-
-        return valid_role_ids
-
-    async def remove_elevated_roles(self, guild_id: GuildId, role_ids: list[RoleId]):
-        """Removes elevated roles from cache and database, usually used to remove stale roles."""
-        # Cache check
-        if not self._filter_roles_present_in_cache(guild_id, role_ids):
-            return
-
-        lock = self._locks.setdefault(guild_id, asyncio.Lock())
-        async with lock:
-            valid_role_ids = self._filter_roles_present_in_cache(guild_id, role_ids)
-
-            if not valid_role_ids:
-                return
-
-            await self._repository_service.remove_elevated_roles(guild_id, valid_role_ids)
-            state = self._require_state(guild_id)
-            role_command_permissions = dict(state.role_command_permissions)
-
-            for role_id in valid_role_ids:
-                role_command_permissions.pop(role_id, None)
-
-            new_state = replace(state, role_command_permissions=role_command_permissions)
-            self._cache[guild_id] = new_state
+        state.active_prompts.pop(prompt_type, None)

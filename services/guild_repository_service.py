@@ -1,5 +1,5 @@
 import asyncio
-from typing import cast
+from typing import cast, Sequence, Collection
 
 from sqlalchemy import update, CursorResult, select, delete
 from sqlalchemy.engine.result import Result
@@ -64,7 +64,7 @@ class GuildRepositoryService:
 
     async def add_role_permissions(
             self,
-            command_names: list[str],
+            command_names: Collection[str],
             guild_id: GuildId,
             role_id: RoleId
     ):
@@ -88,7 +88,12 @@ class GuildRepositoryService:
                 # Not supposed to happen, TODO: Log it
                 pass
 
-    async def remove_role_permissions(self, command_names: list[str], guild_id: GuildId, role_id: RoleId) -> list[str]:
+    async def remove_role_permissions(
+            self,
+            command_names: Collection[str],
+            guild_id: GuildId,
+            role_id: RoleId
+    ) -> list[str]:
         """Removes permissions from a guild role on database level."""
         removed_permissions: list[str] = []
 
@@ -124,7 +129,7 @@ class GuildRepositoryService:
 
                 return fetched_roles
 
-    async def remove_elevated_roles(self, guild_id: GuildId, role_ids: list[RoleId]) -> None:
+    async def remove_elevated_roles(self, guild_id: GuildId, role_ids: Collection[RoleId]) -> None:
         """Removes elevated roles for a guild, usually used for stale roles."""
         if not role_ids:
             return

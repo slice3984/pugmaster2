@@ -7,13 +7,15 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from bot.cogs.base_cog import BaseCog
 from bot.cogs.guild_configuration import GuildConfiguration
+from bot.cogs.manage.manage_queues import ManageQueues
 from bot.cogs.permission import Permission
 from bot.cogs.ping import Ping
+from bot.cogs.queue import Queue
 from core.dto.guild_info import GuildInfo
 from core.dto.manager_context import ManagerContext
 from db.init_tables import init_db
 from domain.types import GuildId
-from managers.command_access_manager import PermissionScope
+from managers.logic.command_access import PermissionScope
 
 dev = True
 
@@ -32,6 +34,8 @@ class PickupBot(commands.Bot):
         await self.add_cog(Ping(self))
         await self.add_cog(GuildConfiguration(self))
         await self.add_cog(Permission(self))
+        await self.add_cog(ManageQueues(self))
+        await self.add_cog(Queue(self))
 
         if dev:
             DEV_GUILD_ID = 1467241111402840299

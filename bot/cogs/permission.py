@@ -6,7 +6,7 @@ from discord import app_commands, InteractionResponse
 from bot.cogs.base_cog import BaseCog
 from bot.ui.embeds.permission_embed_factory import PermissionEmbedFactory
 from domain.types import GuildId, RoleId
-from managers.command_access_manager import ChannelScope, PermissionScope
+from managers.logic.command_access import ChannelScope, PermissionScope
 
 if TYPE_CHECKING:
     from bot.pickupbot import PickupBot
@@ -30,48 +30,44 @@ class Permission(BaseCog):
         async def autocomplete(interaction: discord.Interaction, current: str):
             current_lc = current.lower()
 
-            # Already entered commands
-            passed_commands_history = {
-                str(value).lower()
-                for name, value in vars(interaction.namespace).items()
-                if name.startswith("command_") and value is not None
-            }
-
             role = getattr(interaction.namespace, "role", None)
             if interaction.guild_id is None or role is None:
                 return []
 
             bot = cast('PickupBot', interaction.client)
-            state = bot.managers.guild_state_manager.get_guild_state(interaction.guild_id)
+            sm = bot.managers.guild_state_manager
+            state = sm.get_guild_state(interaction.guild_id)
 
-            if not bot.managers.command_access_manager.has_command_permission(
-                    command_name='permission',
-                    guild_id=interaction.guild.id,
-                    role_ids=[role.id for role in interaction.user.roles],
-                    is_admin=interaction.user.guild_permissions.administrator
+            if not BaseCog.has_autocomplete_permission(
+                    interaction=interaction,
+                    command_permission="permission",
             ):
-                return [app_commands.Choice(name='Unauthorized', value='Unauthorized')]
+                return [app_commands.Choice(name="Unauthorized", value="Unauthorized")]
 
             role_existing = {c.lower() for c in state.role_command_permissions.get(role.id, [])}
 
             if mode == "add":
                 valid_commands = bot.gated_commands
 
-                candidates = [
-                    cmd for cmd in valid_commands
-                    if current_lc in cmd.lower()
-                       and cmd.lower() not in passed_commands_history
-                       and cmd.lower() not in role_existing
-                ]
+                candidates = BaseCog.build_autocomplete_candidates(
+                    field_current_value=current,
+                    field_prefix='command_',
+                    interaction=interaction,
+                    allowed_values=valid_commands,
+                    disallowed_values=role_existing
+                )
 
                 candidates.sort(key=lambda n: (not n.lower().startswith(current_lc), n.lower()))
                 return [app_commands.Choice(name=n, value=n) for n in candidates[:25]]
 
             # Remove
-            candidates = [
-                cmd for cmd in role_existing
-                if current_lc in cmd and cmd not in passed_commands_history
-            ]
+            candidates = BaseCog.build_autocomplete_candidates(
+                field_current_value=current,
+                field_prefix='command_',
+                interaction=interaction,
+                allowed_values=role_existing
+            )
+
             candidates.sort(key=lambda n: (not n.startswith(current_lc), n))
             return [app_commands.Choice(name=n, value=n) for n in candidates[:25]]
 
@@ -106,7 +102,7 @@ class Permission(BaseCog):
             command_six, command_seven, command_eight, command_nine
         ]
 
-        result = await self.bot.managers.guild_state_manager.add_role_permissions(
+        result = await self.bot.managers.guild_state_manager.permissions.add_role_permissions(
             guild_id=interaction.guild.id,
             role_id=role.id,
             command_names=[c for c in commands if c is not None],
@@ -117,7 +113,7 @@ class Permission(BaseCog):
             embed=PermissionEmbedFactory.from_permission_modification(
                 mode='add',
                 role_name=role.name,
-                affected_commands=result
+                affected_commands=result.added_permissions
             ),
             ephemeral=True
         )
@@ -150,7 +146,7 @@ class Permission(BaseCog):
             command_six, command_seven, command_eight, command_nine
         ]
 
-        result = await self.bot.managers.guild_state_manager.remove_role_permissions(
+        result = await self.bot.managers.guild_state_manager.permissions.remove_role_permissions(
             guild_id=interaction.guild.id,
             role_id=role.id,
             command_names=[c for c in commands if c is not None],
@@ -161,7 +157,7 @@ class Permission(BaseCog):
             embed=PermissionEmbedFactory.from_permission_modification(
                 mode='remove',
                 role_name=role.name,
-                affected_commands=result
+                affected_commands=result.removed_permissions
             ),
             ephemeral=True
         )
@@ -174,8 +170,10 @@ class Permission(BaseCog):
         curren_lc = current.lower()
 
         bot = cast('PickupBot', interaction.client)
+        sm = bot.managers.guild_state_manager
+        perm = sm.permissions
 
-        if not bot.managers.command_access_manager.has_command_permission(
+        if not perm.has_command_permission(
             command_name=group.qualified_name.lower(),
             guild_id=interaction.guild.id,
             role_ids=[role.id for role in interaction.user.roles],
@@ -183,8 +181,7 @@ class Permission(BaseCog):
         ):
             return [app_commands.Choice(name='Unauthorized', value='Unauthorized')]
 
-        state = bot.managers.guild_state_manager.get_guild_state(interaction.guild_id)
-
+        state = sm.get_guild_state(interaction.guild_id)
 
         elevated_roles = list(state.role_command_permissions.keys())
         choices: list[app_commands.Choice[str]] = []
@@ -214,7 +211,7 @@ class Permission(BaseCog):
                 break
 
         if stale_role_ids:
-            await bot.managers.guild_state_manager.remove_elevated_roles(
+            await perm.remove_elevated_roles(
                 guild_id=interaction.guild.id,
                 role_ids=stale_role_ids,
             )
@@ -255,7 +252,7 @@ class Permission(BaseCog):
                 roles[role.name] = permissions
 
             if stale_role_ids:
-                await self.bot.managers.guild_state_manager.remove_elevated_roles(
+                await self.bot.managers.guild_state_manager.permissions.remove_elevated_roles(
                     guild_id=interaction.guild.id,
                     role_ids=stale_role_ids
                 )

@@ -1,14 +1,14 @@
 from typing import TYPE_CHECKING
 
 import discord
-from discord import app_commands, Interaction, InteractionResponse, Permissions
+from discord import app_commands, InteractionResponse
 from discord.ext import commands
 
 from bot.cogs.base_cog import BaseCog
 from bot.ui.embeds.guild_setup_embed_factory import GuildSetupEmbedFactory
 from domain.guild_state import GuildSettings
 from domain.types import GuildId
-from managers.command_access_manager import ChannelScope
+from managers.logic.command_access import ChannelScope
 
 if TYPE_CHECKING:
     from bot.pickupbot import PickupBot

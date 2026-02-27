@@ -1,15 +1,16 @@
-from typing import TYPE_CHECKING, cast, Callable
+from typing import TYPE_CHECKING, cast, Callable, Iterable
 import discord
 from discord import app_commands, Role
 from discord.ext import commands
 
 from domain.guild_state import GuildState
 from domain.types import GuildId
-from managers.command_access_manager import ChannelScope, PermissionScope
+from managers.logic.command_access import ChannelScope, PermissionScope
 from services.guild_repository_service import GuildNotCachedError
 
 if TYPE_CHECKING:
     from bot.pickupbot import PickupBot
+
 
 class BaseCog(commands.Cog):
     """
@@ -56,16 +57,16 @@ class BaseCog(commands.Cog):
             is_admin: bool,
             command_name: str
     ) -> bool:
-        cam = self.bot.managers.command_access_manager
+        perms = self.bot.managers.guild_state_manager.permissions
 
-        if not cam.check_channel_scope(
-            required_scope=self.channel_scope,
-            guild_id=guild_id,
-            current_channel_id=current_channel_id
+        if not perms.check_channel_scope(
+                required_scope=self.channel_scope,
+                guild_id=guild_id,
+                current_channel_id=current_channel_id
         ):
             return False
 
-        if not cam.check_permission_scope(
+        if not perms.check_permission_scope(
             required_scope=self.permission_scope,
             guild_id=guild_id,
             role_ids=[role.id for role in guild_member_roles],
@@ -132,7 +133,6 @@ class BaseCog(commands.Cog):
 
         return commands.check(predicate)
 
-
     @staticmethod
     def autocompletes_numbered(
             base_name: str,
@@ -156,3 +156,67 @@ class BaseCog(commands.Cog):
         }
 
         return app_commands.autocomplete(**mapping)
+
+    @staticmethod
+    def build_autocomplete_candidates(
+            field_current_value: str,
+            field_prefix: str,
+            interaction: discord.Interaction,
+            allowed_values: Iterable[str] | None = None,
+            disallowed_values: Iterable[str] | None = None,
+    ) -> list[str]:
+        """Filters allowed_values by current input and excludes already entered values."""
+        current_lc = field_current_value.lower()
+
+        passed_history_lc = {
+            str(value).lower()
+            for name, value in vars(interaction.namespace).items()
+            if name.startswith(field_prefix) and value is not None
+        }
+
+        passed_history_lc.discard(field_current_value.lower())
+        disallowed_lc = {v.lower() for v in disallowed_values} if disallowed_values else set()
+
+        # Determine base candidate pool
+        if allowed_values is not None:
+            base_values = allowed_values
+        else:
+            base_values = disallowed_values or []
+
+        return [
+            value
+            for value in base_values
+            if current_lc in value.lower()
+               and value.lower() not in passed_history_lc
+               and value.lower() not in disallowed_lc
+        ]
+
+    @staticmethod
+    def has_autocomplete_permission(
+        interaction: discord.Interaction,
+        command_permission: str | None,
+    ) -> bool:
+        """Checks whether the user has permission for the given command."""
+        if command_permission is None:
+            return True
+
+        guild = interaction.guild
+        if guild is None:
+            return False
+
+        bot = cast("PickupBot", interaction.client)
+        sm = bot.managers.guild_state_manager
+        perm = sm.permissions
+
+        member = interaction.user
+
+        return perm.has_command_permission(
+            command_name=command_permission,
+            guild_id=guild.id,
+            role_ids=[r.id for r in getattr(member, "roles", [])],
+            is_admin=getattr(
+                getattr(member, "guild_permissions", None),
+                "administrator",
+                False,
+            ),
+        )
