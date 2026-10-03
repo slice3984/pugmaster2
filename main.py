@@ -1,9 +1,12 @@
 import asyncio
 
+import app_context
+from app_context import AppContext
 from config import Config
 from database.db import init_db
 from messengers.discord.bot import DiscordBot
 from messengers.stoat.bot import StoatBot
+from services.state import StateService
 
 
 async def main():
@@ -15,17 +18,22 @@ async def main():
 
     bots = []
 
+    state_service = StateService(session_factory)
+
+    context = AppContext(
+        state_service=state_service,
+    )
+
     if config.discord_token and config.enable_discord:
-        bots.append(DiscordBot(token=config.discord_token.get_secret_value()))
+        bots.append(DiscordBot(token=config.discord_token.get_secret_value(), app_context=context))
 
     if config.stoat_token and config.enable_stoat:
-        bots.append(StoatBot(token=config.stoat_token.get_secret_value()))
+        bots.append(StoatBot(token=config.stoat_token.get_secret_value(), app_context=context))
 
-    for bot in bots:
-        await bot.start()
+    await asyncio.gather(*(bot.run() for bot in bots))
 
-    await asyncio.gather(*(bot.join() for bot in bots))
-
-if __name__ == '__main__':
-    asyncio.run(main())
-
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
