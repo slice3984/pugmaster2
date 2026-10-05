@@ -28,6 +28,7 @@ class StateService:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]):
         self._session_factory = session_factory
         self._community_states: dict[CommunityId, CommunityState] = {}
+        self._community_by_messenger: dict[tuple[MessengerType, ServerUid], CommunityId] = {}
 
         # There is no community available at registration, use a temporary lock instead
         self._registration_locks: dict[tuple[MessengerType, ServerUid], asyncio.Lock] = defaultdict(asyncio.Lock)
@@ -35,6 +36,7 @@ class StateService:
 
     @asynccontextmanager
     async def community(self, community_id: CommunityId):
+        """Context manager to work with the community state in a transactional manner."""
         async with self._community_locks[community_id]:
             state = self._community_states[community_id]
             state_transition = StateTransition(from_state=state)
@@ -73,6 +75,14 @@ class StateService:
             if community:
                 community_state = self._construct_community_state(community)
                 self._community_states[community.id] = community_state
+                self._community_by_messenger[
+                    messenger_registration.messenger_type,
+                    messenger_registration.server_uid] = community.id
+
+    def get_community_state(self, messenger_type: MessengerType, server_uid: ServerUid) -> CommunityState:
+        """Returns a readonly representation of the current community state."""
+        community_id = self._community_by_messenger[messenger_type, server_uid]
+        return self._community_states[community_id]
 
     def _is_messenger_cached(self, messenger_type: MessengerType, server_uid: ServerUid) -> bool:
         for state in self._community_states.values():
@@ -109,7 +119,7 @@ class StateService:
             )
 
         # Community state
-        return CommunityState(messenger_states=messengers)
+        return CommunityState(community_orm.id, messenger_states=messengers)
 
 
 

@@ -1,16 +1,20 @@
+from pathlib import Path
 from pydantic import model_validator, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+PROJECT_ROOT = Path(__file__).resolve().parent
 
 class Config(BaseSettings):
     discord_token: SecretStr | None = None
     stoat_token:  SecretStr | None = None
     db_url: SecretStr
+    test_db_url: SecretStr | None = None
 
     enable_discord: bool = True
     enable_stoat: bool = True
 
     model_config = SettingsConfigDict(
-        env_file='.env'
+        env_file=f'{PROJECT_ROOT}/.env'
     )
 
     @model_validator(mode='after')

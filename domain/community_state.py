@@ -3,13 +3,15 @@ from dataclasses import dataclass, field, replace
 
 from domain.messenger_state import MessengerState
 from enums import MessengerType
-from type_aliases import ServerUid
+from type_aliases import ServerUid, CommunityId
 
 
 @dataclass(frozen=True)
 class CommunityState:
     """Immutable state for a community, interconnects the state of multiple messengers."""
 
+    # ID of the community in the database
+    community_id: CommunityId
     messenger_states: dict[MessengerType, MessengerState] = field(default_factory=dict)
     # ...
 
